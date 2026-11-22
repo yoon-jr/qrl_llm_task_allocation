@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 
 import openai
+import os
 
 # --- 공통 유틸 ---
 from _common_eval import is_correct
@@ -95,7 +96,7 @@ class LLMTaskEnv(gym.Env):
         self.power_per_token = power_per_token    # 토큰당 전력 소비량 (kWh)
 
         # --- LLM 설정 (Gemini) ---
-        self.client = genai.Client(api_key="AIzaSyDNFe2iVo_RggH12wxHy2nds8pDYYHm3YA")
+        self.client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
         self.model_name = "gemini-2.5-flash"
         self.max_tokens = max_tokens
         self.temperature = temperature
