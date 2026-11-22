@@ -1,0 +1,47 @@
+import re
+from typing import Any
+
+# -------- AIME 스타일 정규화(링크 참고) + 보강 --------
+LATEX_CMD_RE = re.compile(r"\\(mathrm|text|operatorname)\s*\{([^}]*)\}")
+BOXED_RE = re.compile(r"\\boxed\s*\{([^}]*)\}")
+FRAC_RE = re.compile(r"\\frac\s*\{\s*([^\}]*)\s*\}\s*\{\s*([^\}]*)\s*\}")
+
+
+def _strip_tex(s: str) -> str:
+    # \boxed{...} -> 내부만
+    s = BOXED_RE.sub(r"\1", s)
+    # \mathrm{a}, \text{a} 등 -> a
+    s = LATEX_CMD_RE.sub(r"\2", s)
+    # \frac{a}{b} -> (a)/(b)
+    s = FRAC_RE.sub(r"(\1)/(\2)", s)
+    # 라텍스 특수기호/공백류 정리
+    s = s.replace("$$", "").replace("$", "")
+    s = s.replace("\\(", "").replace("\\)", "")
+    s = s.replace("\\left", "").replace("\\right", "")
+    s = s.replace("\\n", " ").replace("\\t", " ")
+    # 유니코드 마이너스/곱셈 통일
+    s = s.replace("−", "-").replace("–", "-").replace("—", "-")
+    s = s.replace("×", "x").replace("·", "*")
+    s = re.sub(r"\s+", " ", s).strip()
+    # 숫자 뒤 단위 붙임 시 중간 공백 제거(예: 10 cm -> 10cm)
+    s = re.sub(r"(\d)\s+([a-zA-Zμ%°]+)", r"\1\2", s)
+    # 천 단위 쉼표 제거
+    s = s.replace(",", "")
+    return s
+
+
+def normalize_answer(ans: Any) -> str:
+    """AIME 유틸을 참고한 정규화: LaTeX/공백/쉼표/괄호 등 제거."""
+    if ans is None:
+        return ""
+    if not isinstance(ans, str):
+        ans = str(ans)
+    s = _strip_tex(ans)
+    # 바깥 한 쌍 괄호 제거
+    if len(s) >= 2 and (s[0], s[-1]) in [("(", ")"), ("[", "]"), ("{", "}")]:
+        s = s[1:-1].strip()
+    return s.lower()
+
+
+def is_correct(pred: Any, gold: Any) -> bool:
+    return normalize_answer(pred) == normalize_answer(gold)

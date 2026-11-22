@@ -1,0 +1,79 @@
+# _common_log.py
+import json as jsonlib
+from pathlib import Path
+from typing import Optional
+
+class RunLogger:
+    """ per-sample CSV와 generations.jsonl, 최종 metrics_summary.json 기록 관리 """
+
+    def __init__(self, out_dir: Path):
+        self.out_dir = Path(out_dir)
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+
+        self.fgen = (self.out_dir / "generations.jsonl").open("w", encoding="utf-8")
+        self.fcsv = (self.out_dir / "per_sample_metrics.csv").open("w", encoding="utf-8")
+        # id, 지연, 생성토큰수, 정답여부
+        self.fcsv.write("id,latency_sec,output_tokens,correct\n")
+
+        # 누적값
+        self.total_latency = 0.0
+        self.total_tokens = 0
+        self.total_calls = 0
+        self.n_correct = 0
+        self.total_samples = 0
+
+        # peak memory(바이트) 최대값
+        self.peak_mem_bytes_max = 0
+
+    def update_peak_mem(self, mem_bytes: int):
+        if mem_bytes is None:
+            return
+        self.peak_mem_bytes_max = max(self.peak_mem_bytes_max, int(mem_bytes))
+
+    def log_generation(self, *, ex_id, problem, image, gold_answer, model_output):
+        self.fgen.write(jsonlib.dumps({
+            "id": ex_id,
+            "problem": problem,
+            "image": image,
+            "gold_answer": gold_answer,
+            "model_output": model_output
+        }, ensure_ascii=False) + "\n")
+
+    def log_sample_metrics(self, *, ex_id, latency_sec: float, output_tokens: int, correct: bool):
+        self.fcsv.write(f"{ex_id},{latency_sec:.6f},{output_tokens},{int(bool(correct))}\n")
+        self.total_latency += float(latency_sec)
+        self.total_tokens += int(output_tokens)
+        self.total_calls += 1
+        self.n_correct += int(bool(correct))
+        self.total_samples += 1
+
+    def finalize(self, *, model_name: str):
+        # 평균 지연
+        avg_latency = (self.total_latency / self.total_calls) if self.total_calls else float("nan")
+        # Throughput: 생성된 새 토큰 수 / 총 소요시간 (tokens/sec)
+        throughput_tokens = (self.total_tokens / self.total_latency) if self.total_latency > 0 else float("nan")
+        # 정확도(%)
+        acc = (self.n_correct / self.total_samples) * 100.0 if self.total_samples else 0.0
+        # Peak GPU 메모리(GB)
+        peak_gb = (self.peak_mem_bytes_max / (1024 ** 3)) if self.peak_mem_bytes_max else 0.0
+
+        summary = {
+            "model": model_name,
+            "total_samples": self.total_samples,
+            "accuracy_percent": round(acc, 3),
+            "average_latency_sec_per_request": round(avg_latency, 6),
+            "throughput_tokens_per_sec": round(throughput_tokens, 3),
+            "peak_gpu_memory_gb": round(peak_gb, 3),
+        }
+
+        with (self.out_dir / "metrics_summary.json").open("w", encoding="utf-8") as f:
+            jsonlib.dump(summary, f, ensure_ascii=False, indent=2)
+
+        # 파일 닫기
+        self.fgen.close()
+        self.fcsv.close()
+
+        # 콘솔 출력
+        print("\n=== Summary ===")
+        for k, v in summary.items():
+            print(f"{k}: {v}")
